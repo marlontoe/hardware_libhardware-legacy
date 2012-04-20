@@ -238,7 +238,9 @@ int wifi_load_driver()
         return -1;
 
     if (strcmp(FIRMWARE_LOADER,"") == 0) {
-        /* usleep(WIFI_DRIVER_LOADER_DELAY); */
+#ifdef TARGET_BOARD_ORIGEN
+        usleep(WIFI_DRIVER_LOADER_DELAY);
+#endif
         property_set(DRIVER_PROP_NAME, "ok");
     }
     else {
