@@ -16,7 +16,7 @@ LOCAL_INCLUDES += $(LOCAL_PATH)
 LOCAL_CFLAGS  += -DQEMU_HARDWARE
 QEMU_HARDWARE := true
 
-ifeq ($(TARGET_BOARD_PLATFORM), origen)
+ifneq (,$(filter $(TARGET_PRODUCT),origen origen_quad))
 LOCAL_CFLAGS += -DTARGET_BOARD_ORIGEN=1
 endif
 
