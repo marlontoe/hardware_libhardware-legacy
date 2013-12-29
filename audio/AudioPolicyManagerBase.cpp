@@ -585,14 +585,22 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
         flags = (AudioSystem::output_flags)(flags | AUDIO_OUTPUT_FLAG_DIRECT);
     }
 
+#ifdef QCOM_HARDWARE
+    if ((format == AudioSystem::PCM_16_BIT) &&(AudioSystem::popCount(channelMask) > 2)) {
+        ALOGV("owerwrite flag(%x) for PCM16 multi-channel(CM:%x) playback", flags ,channelMask);
+        flags = (AudioSystem::output_flags)AUDIO_OUTPUT_FLAG_DIRECT;
+    }
+#endif
+
     // Do not allow offloading if one non offloadable effect is enabled. This prevents from
     // creating an offloaded track and tearing it down immediately after start when audioflinger
     // detects there is an active non offloadable effect.
     // FIXME: We should check the audio session here but we do not have it in this context.
     // This may prevent offloading in rare situations where effects are left active by apps
     // in the background.
-    if (((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) ||
-            !isNonOffloadableEffectEnabled()) {
+    if ((((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) ||
+            !isNonOffloadableEffectEnabled()) &&
+            flags & AUDIO_OUTPUT_FLAG_DIRECT) {
         profile = getProfileForDirectOutput(device,
                                            samplingRate,
                                            format,
@@ -1498,6 +1506,14 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
                return false;
             }
         }
+        if(offloadInfo.is_streaming &&
+           property_get("av.streaming.offload.enable", propValue, "false")) {
+            bool prop_enabled = atoi(propValue) || !strncmp("true", propValue, 4);
+            if (!prop_enabled) {
+               ALOGW("offload disabled by av.streaming.offload.enable = %s ", propValue );
+               return false;
+            }
+        }
         ALOGV("isOffloadSupported: has_video == true, property\
                 set to enable offload");
     }
@@ -1510,7 +1526,10 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
         }
     } else if (offloadInfo.duration_us < OFFLOAD_DEFAULT_MIN_DURATION_SECS * 1000000) {
         ALOGV("Offload denied by duration < default min(=%u)", OFFLOAD_DEFAULT_MIN_DURATION_SECS);
-        return false;
+        //duration checks only valid for MP3/AAC formats,
+        //do not check duration for other audio formats, e.g. dolby AAC/AC3 and amrwb+ formats
+        if (offloadInfo.format == AUDIO_FORMAT_MP3 || offloadInfo.format == AUDIO_FORMAT_AAC)
+            return false;
     }
 
     // Do not allow offloading if one non offloadable effect is enabled. This prevents from
@@ -3674,7 +3693,7 @@ const struct StringToEnum sDeviceNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_DEVICE_OUT_SPEAKER),
     STRING_TO_ENUM(AUDIO_DEVICE_OUT_WIRED_HEADSET),
     STRING_TO_ENUM(AUDIO_DEVICE_OUT_WIRED_HEADPHONE),
-#ifdef QCOM_HARDWARE
+#ifdef AUDIO_LEGACY_FORMATS_ENABLED
     STRING_TO_ENUM(AUDIO_DEVICE_OUT_ANC_HEADSET),
     STRING_TO_ENUM(AUDIO_DEVICE_OUT_ANC_HEADPHONE),
 #endif
@@ -3697,7 +3716,7 @@ const struct StringToEnum sDeviceNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_DEVICE_IN_BUILTIN_MIC),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_WIRED_HEADSET),
-#ifdef QCOM_HARDWARE
+#ifdef AUDIO_LEGACY_FORMATS_ENABLED
     STRING_TO_ENUM(AUDIO_DEVICE_IN_ANC_HEADSET),
 #endif
     STRING_TO_ENUM(AUDIO_DEVICE_IN_AUX_DIGITAL),
@@ -3711,7 +3730,7 @@ const struct StringToEnum sDeviceNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_DEVICE_IN_FM_RX),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_FM_RX_A2DP),
 #endif
-#ifdef QCOM_HARDWARE
+#ifdef AUDIO_LEGACY_FORMATS_ENABLED
     STRING_TO_ENUM(AUDIO_DEVICE_IN_PROXY),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_COMMUNICATION),
 #endif
@@ -3724,13 +3743,15 @@ const struct StringToEnum sFlagNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_OUTPUT_FLAG_DEEP_BUFFER),
     STRING_TO_ENUM(AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD),
     STRING_TO_ENUM(AUDIO_OUTPUT_FLAG_NON_BLOCKING),
-#ifdef QCOM_HARDWARE
-    STRING_TO_ENUM(AUDIO_OUTPUT_FLAG_VOIP_RX),
+#ifdef AUDIO_LEGACY_FORMATS_ENABLED
     STRING_TO_ENUM(AUDIO_OUTPUT_FLAG_LPA),
     STRING_TO_ENUM(AUDIO_OUTPUT_FLAG_TUNNEL),
 #endif
 #ifdef AUDIO_EXTN_INCALL_MUSIC_ENABLED
     STRING_TO_ENUM(AUDIO_OUTPUT_FLAG_INCALL_MUSIC),
+#endif
+#ifdef AUDIO_EXTN_COMPRESS_VOIP_ENABLED
+    STRING_TO_ENUM(AUDIO_OUTPUT_FLAG_VOIP_RX),
 #endif
 };
 
@@ -3740,7 +3761,7 @@ const struct StringToEnum sFormatNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_FORMAT_MP3),
     STRING_TO_ENUM(AUDIO_FORMAT_AAC),
     STRING_TO_ENUM(AUDIO_FORMAT_VORBIS),
-#ifdef QCOM_HARDWARE
+#ifdef AUDIO_EXTN_FORMATS_ENABLED
     STRING_TO_ENUM(AUDIO_FORMAT_AC3),
     STRING_TO_ENUM(AUDIO_FORMAT_EAC3),
     STRING_TO_ENUM(AUDIO_FORMAT_DTS),
@@ -3763,25 +3784,25 @@ const struct StringToEnum sFormatNameToEnumTable[] = {
 const struct StringToEnum sOutChannelsNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_CHANNEL_OUT_MONO),
     STRING_TO_ENUM(AUDIO_CHANNEL_OUT_STEREO),
-#ifdef QCOM_HARDWARE
+    STRING_TO_ENUM(AUDIO_CHANNEL_OUT_5POINT1),
+    STRING_TO_ENUM(AUDIO_CHANNEL_OUT_7POINT1),
+#ifdef AUDIO_EXTN_DS1_DOLBY_DDP_ENABLED
     STRING_TO_ENUM(AUDIO_CHANNEL_OUT_2POINT1),
     STRING_TO_ENUM(AUDIO_CHANNEL_OUT_QUAD),
     STRING_TO_ENUM(AUDIO_CHANNEL_OUT_SURROUND),
     STRING_TO_ENUM(AUDIO_CHANNEL_OUT_PENTA),
-#endif
-    STRING_TO_ENUM(AUDIO_CHANNEL_OUT_5POINT1),
-#ifdef QCOM_HARDWARE
     STRING_TO_ENUM(AUDIO_CHANNEL_OUT_6POINT1),
 #endif
-    STRING_TO_ENUM(AUDIO_CHANNEL_OUT_7POINT1),
 };
 
 const struct StringToEnum sInChannelsNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_CHANNEL_IN_MONO),
     STRING_TO_ENUM(AUDIO_CHANNEL_IN_STEREO),
     STRING_TO_ENUM(AUDIO_CHANNEL_IN_FRONT_BACK),
-#ifdef QCOM_HARDWARE
+#ifdef AUDIO_EXTN_SSR_ENABLED
     STRING_TO_ENUM(AUDIO_CHANNEL_IN_5POINT1),
+#endif
+#ifdef AUDIO_LEGACY_FORMATS_ENABLED
     STRING_TO_ENUM(AUDIO_CHANNEL_IN_VOICE_CALL_MONO),
     STRING_TO_ENUM(AUDIO_CHANNEL_IN_VOICE_DNLINK_MONO),
     STRING_TO_ENUM(AUDIO_CHANNEL_IN_VOICE_UPLINK_MONO),
